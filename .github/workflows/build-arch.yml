@@ -8,9 +8,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 拉代码
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 在 Arch Docker 里编译
       - name: Build in Arch Linux (Docker)
         run: |
           docker run --rm -t \
@@ -19,34 +21,54 @@ jobs:
             archlinux:latest \
             bash -lc '
               set -euxo pipefail
+
+              echo "==> Init pacman keyring"
               pacman-key --init
               pacman-key --populate archlinux
+
+              echo "==> Install base packages"
               pacman -Syu --noconfirm
               pacman -S --noconfirm --needed \
-                base-devel git curl unzip zip tar \
-                cmake ninja pkgconf \
+                base-devel \
+                git curl unzip zip tar \
+                cmake ninja pkgconf clang \
                 gtk3 glib2 pango cairo gdk-pixbuf2 \
                 mpv
 
-              # ====== 下面按项目类型改（先用 Flutter 版，若不是 Flutter 再改）======
-              if [ -f pubspec.yaml ]; then
-                git clone https://github.com/flutter/flutter.git -b stable --depth 1 /opt/flutter
-                export PATH=/opt/flutter/bin:$PATH
-                flutter --version
-                flutter config --enable-linux-desktop
-                flutter pub get
-                flutter build linux --release
-                mkdir -p dist
-                tar -C build/linux/x64/release -czf dist/simple_live_app-archlinux-x86_64.tar.gz bundle
-              else
-                echo "No pubspec.yaml found. Please replace build commands for your project type."
-                ls -la
+              echo "==> Install Flutter"
+              git clone https://github.com/flutter/flutter.git -b stable --depth 1 /opt/flutter
+              export PATH=/opt/flutter/bin:$PATH
+
+              flutter --version
+              flutter config --enable-linux-desktop
+
+              echo "==> Enter Flutter app dir"
+              cd simple_live_app
+
+              if [ ! -f pubspec.yaml ]; then
+                echo "ERROR: pubspec.yaml not found in simple_live_app"
                 exit 1
               fi
+
+              echo "==> Flutter pub get"
+              flutter pub get
+
+              echo "==> Build Linux release"
+              flutter build linux --release
+
+              echo "==> Package output"
+              mkdir -p /work/dist
+
+              tar -C build/linux/x64/release \
+                -czf /work/dist/simple_live_app-archlinux-x86_64.tar.gz \
+                bundle
+
+              echo "==> Done"
             '
 
+      # 上传构建产物
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: simple_live_app-archlinux-x86_64
-          path: dist/*.tar.gz
+          path: dist/simple_live_app-archlinux-x86_64.tar.gz
