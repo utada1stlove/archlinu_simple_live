@@ -2,54 +2,48 @@ name: build-archlinux
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - "v*"
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: archlinux:latest
 
     steps:
-      - name: Prepare pacman
-        run: |
-          pacman -Syu --noconfirm
-          pacman -S --noconfirm --needed \
-            base-devel git curl unzip zip tar \
-            cmake ninja pkgconf
-
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ===== 下面这段你要按项目技术栈二选一 =====
-
-      # [选项 1] 如果项目是 Flutter（仓库里有 pubspec.yaml）
-      - name: Setup Flutter (stable)
+      - name: Build in Arch Linux (Docker)
         run: |
-          git clone https://github.com/flutter/flutter.git -b stable --depth 1 /opt/flutter
-          echo "/opt/flutter/bin" >> $GITHUB_PATH
-          flutter --version
-          flutter config --enable-linux-desktop
+          docker run --rm -t \
+            -v "$GITHUB_WORKSPACE:/work" \
+            -w /work \
+            archlinux:latest \
+            bash -lc '
+              set -euxo pipefail
+              pacman-key --init
+              pacman-key --populate archlinux
+              pacman -Syu --noconfirm
+              pacman -S --noconfirm --needed \
+                base-devel git curl unzip zip tar \
+                cmake ninja pkgconf \
+                gtk3 glib2 pango cairo gdk-pixbuf2 \
+                mpv
 
-      - name: Install Linux deps (Flutter common)
-        run: |
-          pacman -S --noconfirm --needed \
-            gtk3 glib2 pango cairo gdk-pixbuf2 \
-            mpv
-
-      - name: Build (Flutter Linux release)
-        run: |
-          flutter pub get
-          flutter build linux --release
-
-      - name: Package tar.gz
-        run: |
-          mkdir -p dist
-          # Flutter 默认 bundle 路径
-          tar -C build/linux/x64/release -czf dist/simple_live_app-archlinux-x86_64.tar.gz bundle
-
-      # ===== 如果不是 Flutter，把上面 Flutter steps 注释掉，改成你的构建命令 =====
+              # ====== 下面按项目类型改（先用 Flutter 版，若不是 Flutter 再改）======
+              if [ -f pubspec.yaml ]; then
+                git clone https://github.com/flutter/flutter.git -b stable --depth 1 /opt/flutter
+                export PATH=/opt/flutter/bin:$PATH
+                flutter --version
+                flutter config --enable-linux-desktop
+                flutter pub get
+                flutter build linux --release
+                mkdir -p dist
+                tar -C build/linux/x64/release -czf dist/simple_live_app-archlinux-x86_64.tar.gz bundle
+              else
+                echo "No pubspec.yaml found. Please replace build commands for your project type."
+                ls -la
+                exit 1
+              fi
+            '
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
